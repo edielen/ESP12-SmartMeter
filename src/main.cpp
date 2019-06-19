@@ -1,7 +1,8 @@
-#include <TimeLib.h>
+// #include <TimeLib.h>
 
-char isotimebuf[25];
-#define NowAsIsoTimeString ((snprintf(isotimebuf, 30, "%04d-%02d-%02dT%02d:%02d:%02dZ", year(), month(), day(), hour(), minute(), second())), isotimebuf)
+// char isotimebuf[25];
+// #define NowAsIsoTimeString ((snprintf(isotimebuf, 30, "%04d-%02d-%02dT%02d:%02d:%02dZ", year(), month(), day(), hour(), minute(), second())), isotimebuf)
+#define NowAsIsoTimeString "now"
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
@@ -68,6 +69,32 @@ struct {
   long mMIN, mAVG, mMAX;
 } avgRec;
 
+void processAverage() {
+  av = 0;
+  mi = 2147483646L;
+  ma = -2147483646L;
+  for(int i=0; i < avgCnt; i++) {
+    av = av + avgPwr[i];
+    if(avgPwr[i] > ma) {
+      ma = avgPwr[i];
+    }
+    if(avgPwr[i] < mi) {
+      mi = avgPwr[i];
+    }
+    avgPwr[i] = 0;
+  }
+  if(avgCnt > 0) {
+    av = av / avgCnt;
+  } else {
+    av = 0;
+  }
+  avgRec.mCNT = avgCnt;
+  avgCnt = 0;
+  avgRec.mMIN = mi;
+  avgRec.mAVG = av;
+  avgRec.mMAX = ma;
+}
+
 BlynkTimer timerAvg;
 void avgTimer()
 {
@@ -96,152 +123,7 @@ void gasTimer()
   mLastGVT = mGVT;
 }
 
-void setup(void) {
-  Serial.begin(115200);
-
-  // Invert UART0 RXD pin using direct peripheral register write
-  USC0(0) |= 1UL << UCRXI; 
-
-  twi_setClock(400000);
-  
-  WiFi.hostname(espHostname);
-  WiFi.mode(WIFI_AP_STA);
-  Blynk.begin(auth, ssid, password);
-  Serial.println("");
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-  
-  // Setup NTP client
-  configTime(0, 0, ntp_primary, ntp_secondary);
-  Serial.print("Waiting on time sync.");
-  while (time(nullptr) < 1510644967) {
-    delay(10);
-    Serial.print(".");
-  }
-  setTime(time(nullptr));
-  
-  httpUpdater.setup(&server);
-  server.on("/", handleJson);
-  server.on("/debug", handleDebug);
-  server.on("/reset", handleReset);
-  server.onNotFound(handleJson);
-
-  server.begin();
-  Serial.println("");
-  Serial.print("HTTP server started @ ");
-  Serial.println(NowAsIsoTimeString);
-
-  timerAvg.setInterval(1000L * avgInterval, avgTimer);
-  timerGas.setInterval(1000L * gasInterval, gasTimer);
-  timerMeters.setInterval(1000L * metersInterval, metersTimer);
-}
-
-// CRC-16-IBM calculation
-#define POLY 0xA001
-uint16_t crc16_update(uint16_t crc16, unsigned char c)
-{
-    crc16 ^= c;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    return crc16;
-}
-
 char message[500];
-
-// 0 = waiting for /
-// 1 = waiting for !
-// 2 = waiting for \r
-uint8_t state = 0;
-
-void loop(void) {
-  server.handleClient();
-  Blynk.run();
-  timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
-  timerGas.run(); // Stuur iedere 10m gasverbruik
-  timerMeters.run(); // Stuur ieder uur de meterstanden
-
-  while (Serial.available()) {
-    unsigned char c = Serial.read();
-    if(c == '/') {
-      datagram = "";
-      oCrc = 0;
-      newData = false;
-      state = 1;
-    }
-    switch ( state ) {
-    case 1:
-      if(c == '!') {
-        crc = "";
-        state = 2;
-      }
-      datagram += String((char) c);
-      oCrc = crc16_update(oCrc, c);
-      break;
-    case 2:
-      if(c == '\r') {
-        if ( checkCRC() )
-        {
-          // Process datagram
-          decodeDatagram();
-        }
-        state = 0;
-      }
-      else
-        crc += String((char) c);
-    }
-  }
-}
-
-void handleDebug() {
-  String message = "Server up and running\r\n";
-  message += "ResetReason: " + String(ESP.getResetReason()) + "\r\n";
-  message += "ms since on: " + String(millis()) + "\r\n\n";
-  message += datagram;
-  message += "\n\r\n\r-------- CRC --------\n\r";
-  message += "Message CRC: " + crc;
-  message += "\r\nBerekende CRC: " + String(oCrc, HEX);
-  message += "\n\r-------- Debug Data ----------\n\r";
-  message += debugme;
-  message += "\n\r-------- Network Info --------\n\r";
-  message += "Time: ";
-  message += NowAsIsoTimeString;
-  message += "\r\nMAC Addr: ";
-  message += String(WiFi.macAddress());
-  checkRSSI();
-  message += "\r\nRSSI: ";
-  message += String(WiFi.RSSI());
-  message += "dBm (Indicator ";
-  message += String(wRSSI);
-  message += ")\r\nChip info: 0x";
-  message += String(ESP.getChipId(), HEX);
-  message += "\n\r\n\r-------- HTTP Data -----------\n\r";
-  message += httpdebug;
-  server.send(200, "text/plain", message);
-}
-
-
-void handleReset() {
-  String message = "Resetting in 5 seconds...\n\r";
-  server.send(200, "text/plain", message);
-  delay(5000);
-  ESP.restart();
-}
-
 String jsonTemplate = "{\r\n"
   "  \"stroom\": {\r\n"
   "    \"tijdstip\": \"%s\",\r\n"
@@ -287,15 +169,114 @@ void checkRSSI() {
   }
 }
 
+void handleDebug() {
+  String message = "Server up and running\r\n";
+  message += "ResetReason: " + String(ESP.getResetReason()) + "\r\n";
+  message += "ms since on: " + String(millis()) + "\r\n\n";
+  message += datagram;
+  message += "\n\r\n\r-------- CRC --------\n\r";
+  message += "Message CRC: " + crc;
+  message += "\r\nBerekende CRC: " + String(oCrc, HEX);
+  message += "\n\r-------- Debug Data ----------\n\r";
+  message += debugme;
+  message += "\n\r-------- Network Info --------\n\r";
+  message += "Time: ";
+  message += NowAsIsoTimeString;
+  message += "\r\nMAC Addr: ";
+  message += String(WiFi.macAddress());
+  checkRSSI();
+  message += "\r\nRSSI: ";
+  message += String(WiFi.RSSI());
+  message += "dBm (Indicator ";
+  message += String(wRSSI);
+  message += ")\r\nChip info: 0x";
+  message += String(ESP.getChipId(), HEX);
+  message += "\n\r\n\r-------- HTTP Data -----------\n\r";
+  message += httpdebug;
+  server.send(200, "text/plain", message);
+}
+
+void handleReset() {
+  String message = "Resetting in 5 seconds...\n\r";
+  server.send(200, "text/plain", message);
+  delay(5000);
+  ESP.restart();
+}
+
+void setup(void) {
+  Serial.begin(115200);
+
+  // Invert UART0 RXD pin using direct peripheral register write
+  USC0(0) |= 1UL << UCRXI; 
+
+  twi_setClock(400000);
+  
+  WiFi.hostname(espHostname);
+  WiFi.mode(WIFI_STA);
+  Blynk.begin(auth, ssid, password);
+  Serial.println("");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  
+  // Setup NTP client
+  configTime(0, 0, ntp_primary, ntp_secondary);
+  Serial.print("Waiting on time sync.");
+  while (time(nullptr) < 1510644967) {
+    delay(10);
+    Serial.print(".");
+  }
+  // setTime(time(nullptr));
+  
+  httpUpdater.setup(&server);
+  server.on("/", handleJson);
+  server.on("/debug", handleDebug);
+  server.on("/reset", handleReset);
+  server.onNotFound(handleJson);
+
+  server.begin();
+  Serial.println("");
+  Serial.print("HTTP server started @ ");
+  Serial.println(NowAsIsoTimeString);
+
+  timerAvg.setInterval(1000L * avgInterval, avgTimer);
+  timerGas.setInterval(1000L * gasInterval, gasTimer);
+  timerMeters.setInterval(1000L * metersInterval, metersTimer);
+}
+
+// CRC-16-IBM calculation
+#define POLY 0xA001
+uint16_t crc16_update(uint16_t crc16, unsigned char c)
+{
+    crc16 ^= c;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
+    return crc16;
+}
+
 bool checkCRC() {
   iCrc = strtol(crc.c_str(), NULL, 16);
   return iCrc == oCrc;
 }
 
+
 void decodeDatagram() {
   int x, y;
   String t;
-  char inChar;
   long tmpVal;
 
   // time from meter
@@ -461,28 +442,46 @@ void decodeDatagram() {
   }
 }
 
-void processAverage() {
-  av = 0;
-  mi = 2147483646L;
-  ma = -2147483646L;
-  for(int i=0; i < avgCnt; i++) {
-    av = av + avgPwr[i];
-    if(avgPwr[i] > ma) {
-      ma = avgPwr[i];
+// 0 = waiting for /
+// 1 = waiting for !
+// 2 = waiting for \r
+uint8_t state = 0;
+
+void loop(void) {
+  server.handleClient();
+  Blynk.run();
+  timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
+  timerGas.run(); // Stuur iedere 10m gasverbruik
+  timerMeters.run(); // Stuur ieder uur de meterstanden
+
+  while (Serial.available()) {
+    unsigned char c = Serial.read();
+    if(c == '/') {
+      datagram = "";
+      oCrc = 0;
+      newData = false;
+      state = 1;
     }
-    if(avgPwr[i] < mi) {
-      mi = avgPwr[i];
+    switch ( state ) {
+    case 1:
+      if(c == '!') {
+        crc = "";
+        state = 2;
+      }
+      datagram += String((char) c);
+      oCrc = crc16_update(oCrc, c);
+      break;
+    case 2:
+      if(c == '\r') {
+        if ( checkCRC() )
+        {
+          // Process datagram
+          decodeDatagram();
+        }
+        state = 0;
+      }
+      else
+        crc += String((char) c);
     }
-    avgPwr[i] = 0;
   }
-  if(avgCnt > 0) {
-    av = av / avgCnt;
-  } else {
-    av = 0;
-  }
-  avgRec.mCNT = avgCnt;
-  avgCnt = 0;
-  avgRec.mMIN = mi;
-  avgRec.mAVG = av;
-  avgRec.mMAX = ma;
 }

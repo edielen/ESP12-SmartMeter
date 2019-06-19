@@ -1,9 +1,4 @@
-// #include <TimeLib.h>
-
-// char isotimebuf[25];
-// #define NowAsIsoTimeString ((snprintf(isotimebuf, 30, "%04d-%02d-%02dT%02d:%02d:%02dZ", year(), month(), day(), hour(), minute(), second())), isotimebuf)
-#define NowAsIsoTimeString "now"
-
+#include <time.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
@@ -24,9 +19,23 @@ char ssid[] = WIFI_SSID;
 char password[] = WIFI_PASSWD;
 char auth[] = BLYNK_AUTH;
 
-// Configuration for NTP
-const char* ntp_primary = "ntp.caiway.nl";
-const char* ntp_secondary = "pool.ntp.org";
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
+
+char isotimebuf[25];
+const char *NowAsIsoTimeString()
+{
+  time_t nowEpoch(timeClient.getEpochTime());
+  struct tm nowTm;
+  gmtime_r(&nowEpoch, &nowTm);
+  snprintf(isotimebuf, 30, "%04d-%02d-%02dT%02d:%02d:%02dZ", 
+    nowTm.tm_year, nowTm.tm_mon, nowTm.tm_mday, 
+    nowTm.tm_hour, nowTm.tm_min, nowTm.tm_sec);
+  return isotimebuf;
+}
 
 long mEVLT = 0; // consumption low tariff (0,001kWh)
 long mEVHT = 0; // consumption high tariff (0,001kWh)
@@ -181,7 +190,7 @@ void handleDebug() {
   message += debugme;
   message += "\n\r-------- Network Info --------\n\r";
   message += "Time: ";
-  message += NowAsIsoTimeString;
+  message += NowAsIsoTimeString();
   message += "\r\nMAC Addr: ";
   message += String(WiFi.macAddress());
   checkRSSI();
@@ -226,15 +235,8 @@ void setup(void) {
   Serial.println(ssid);
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-  
-  // Setup NTP client
-  configTime(0, 0, ntp_primary, ntp_secondary);
-  Serial.print("Waiting on time sync.");
-  while (time(nullptr) < 1510644967) {
-    delay(10);
-    Serial.print(".");
-  }
-  // setTime(time(nullptr));
+
+  timeClient.begin();
   
   httpUpdater.setup(&server);
   server.on("/", handleJson);
@@ -245,7 +247,7 @@ void setup(void) {
   server.begin();
   Serial.println("");
   Serial.print("HTTP server started @ ");
-  Serial.println(NowAsIsoTimeString);
+  Serial.println(NowAsIsoTimeString());
 
   timerAvg.setInterval(1000L * avgInterval, avgTimer);
   timerGas.setInterval(1000L * gasInterval, gasTimer);
@@ -448,6 +450,7 @@ void decodeDatagram() {
 uint8_t state = 0;
 
 void loop(void) {
+  timeClient.update();
   server.handleClient();
   Blynk.run();
   timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik

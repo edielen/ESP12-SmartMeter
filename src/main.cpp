@@ -39,8 +39,7 @@ const char *NowAsIsoTimeString()
 }
 
 sm50::datagram Datagram;
-uint16_t oCrc = 0;
-uint16_t iCrc = 0;
+sm50::crc16 Crc;
 
 boolean newData = false;
 
@@ -171,7 +170,7 @@ void handleDebug() {
   message += Datagram.asString();
   message += "\n\r\n\r-------- CRC --------\n\r";
   message += "Message CRC: " + crc;
-  message += "\r\nBerekende CRC: " + String(oCrc, HEX);
+  message += "\r\nBerekende CRC: " + Crc.asHexString();
   message += "\n\r-------- Debug Data ----------\n\r";
   message += debugme;
   message += "\n\r-------- Network Info --------\n\r";
@@ -238,27 +237,6 @@ void setup(void) {
   timerAvg.setInterval(1000L * avgInterval, avgTimer);
   timerGas.setInterval(1000L * gasInterval, gasTimer);
   timerMeters.setInterval(1000L * metersInterval, metersTimer);
-}
-
-// CRC-16-IBM calculation
-#define POLY 0xA001
-uint16_t crc16_update(uint16_t crc16, unsigned char c)
-{
-    crc16 ^= c;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
-    return crc16;
-}
-
-bool checkCRC() {
-  iCrc = strtol(crc.c_str(), NULL, 16);
-  return iCrc == oCrc;
 }
 
 
@@ -448,7 +426,7 @@ void loop(void) {
     unsigned char c = Serial.read();
     if(c == '/') {
       Datagram.reset();
-      oCrc = 0;
+      Crc.reset();
       newData = false;
       state = 1;
     }
@@ -459,11 +437,11 @@ void loop(void) {
         state = 2;
       }
       Datagram.add(c);
-      oCrc = crc16_update(oCrc, c);
+      Crc.update(c);
       break;
     case 2:
       if(c == '\r') {
-        if ( checkCRC() )
+        if ( Crc.validate(crc) )
         {
           // Process datagram
           decodeDatagram();

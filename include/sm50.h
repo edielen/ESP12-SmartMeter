@@ -32,10 +32,23 @@ private:
     String strDatagram;
 };
 
+class crc16
+{
+public:
+    crc16();
+
+    void reset();
+    void update(unsigned char c);
+    bool validate(const String base) const;
+    const String asHexString() const;
+
+private:
+    uint16_t crc;
+};
+
 class decode
 {
 public:
-    
 };
 
 } // namespace sm50

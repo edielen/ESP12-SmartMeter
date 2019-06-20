@@ -1,4 +1,5 @@
 #include "sm50.h"
+#include <Print.h>
 
 long sm50::datagram::mEVLT = 0; // consumption low tariff (0,001kWh)
 long sm50::datagram::mEVHT = 0; // consumption high tariff (0,001kWh)
@@ -34,4 +35,39 @@ void sm50::datagram::reset()
 String const sm50::datagram::asString() const
 {
     return this->strDatagram;
+}
+
+sm50::crc16::crc16()
+{
+    reset();
+}
+
+void sm50::crc16::reset()
+{
+    this->crc = 0;
+}
+
+// CRC-16-IBM calculation
+#define POLY 0xA001
+void sm50::crc16::update(unsigned char c)
+{
+    this->crc ^= c;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+    this->crc = this->crc & 1 ? (this->crc >> 1) ^ POLY : this->crc >> 1;
+}
+
+bool sm50::crc16::validate(const String base) const
+{
+    return ( strtol(base.c_str(), NULL, 16) == this->crc );
+}
+
+const String sm50::crc16::asHexString() const
+{
+    return String(this->crc, HEX);
 }

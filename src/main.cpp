@@ -6,6 +6,7 @@
 #include <BlynkSimpleEsp8266_SSL.h>
 
 #include <esp8266_peri.h>
+#include "sm50.h"
 
 // interval in seconds
 #define avgInterval 15
@@ -37,21 +38,7 @@ const char *NowAsIsoTimeString()
   return isotimebuf;
 }
 
-long mEVLT = 0; // consumption low tariff (0,001kWh)
-long mEVHT = 0; // consumption high tariff (0,001kWh)
-long mEPLT = 0; // production low tariff (0,001kWh)
-long mEPHT = 0; // production high tariff (0,001kWh)
-long mEAV = 0;  // actual consumption (0,001kW)
-long mEAP = 0;  // actual production (0,001kW)
-long mCT = 0;   // actual tariff (1/2)
-long mGVT = 0;  // m-bus reading gas (0,001m3)
-long mWVT = 0;  // m-bus reading water (0,001m3)
-long oEVLT = 0; // consumption low tariff (0,001kWh)
-long oEVHT = 0; // consumption high tariff (0,001kWh)
-long oEPLT = 0; // production low tariff (0,001kWh)
-long oEPHT = 0; // production high tariff (0,001kWh)
-long oGVT = 0;  // m-bus reading gas (0,001m3)
-long oWVT = 0;  // m-bus reading water (0,001m3)
+sm50::datagram Datagram;
 uint16_t oCrc = 0;
 uint16_t iCrc = 0;
 
@@ -59,7 +46,6 @@ boolean newData = false;
 
 int wRSSI = 0;  // The RSSI indicator, scaled from 0 (worse) to 4 (best)
 
-String datagram = "";
 String crc = "";
 String debugme = "";
 String httpdebug = "";
@@ -114,10 +100,10 @@ void avgTimer()
 BlynkTimer timerMeters;
 void metersTimer()
 {
-  Blynk.virtualWrite(V2, mEVLT);
-  Blynk.virtualWrite(V3, mEVHT);
-  Blynk.virtualWrite(V4, mEVLT + mEVHT);
-  Blynk.virtualWrite(V5, mGVT);
+  Blynk.virtualWrite(V2, sm50::datagram::mEVLT);
+  Blynk.virtualWrite(V3, sm50::datagram::mEVHT);
+  Blynk.virtualWrite(V4, sm50::datagram::mEVLT + sm50::datagram::mEVHT);
+  Blynk.virtualWrite(V5, sm50::datagram::mGVT);
 }
 
 String gasTime;
@@ -127,9 +113,9 @@ void gasTimer()
 {
   if ( mLastGVT > 0 )
   {
-    Blynk.virtualWrite(V6, mGVT - mLastGVT);
+    Blynk.virtualWrite(V6, sm50::datagram::mGVT - mLastGVT);
   }
-  mLastGVT = mGVT;
+  mLastGVT = sm50::datagram::mGVT;
 }
 
 char message[500];
@@ -156,9 +142,9 @@ String jsonTemplate = "{\r\n"
 
 void handleJson() {
   snprintf(message, 500, jsonTemplate.c_str(), tmpTime.c_str(),
-    mCT == 2 ? "hoog" : "laag", avgInterval,
+    sm50::datagram::mCT == 2 ? "hoog" : "laag", avgInterval,
     avgRec.mAVG, avgRec.mMIN, avgRec.mMAX, avgRec.mCNT,
-    mEVLT, mEVHT, gasTime.c_str(), mGVT);
+    sm50::datagram::mEVLT, sm50::datagram::mEVHT, gasTime.c_str(), sm50::datagram::mGVT);
   server.send(200, "application/json", message);
 }
 
@@ -182,7 +168,7 @@ void handleDebug() {
   String message = "Server up and running\r\n";
   message += "ResetReason: " + String(ESP.getResetReason()) + "\r\n";
   message += "ms since on: " + String(millis()) + "\r\n\n";
-  message += datagram;
+  message += Datagram.asString();
   message += "\n\r\n\r-------- CRC --------\n\r";
   message += "Message CRC: " + crc;
   message += "\r\nBerekende CRC: " + String(oCrc, HEX);
@@ -280,6 +266,7 @@ void decodeDatagram() {
   int x, y;
   String t;
   long tmpVal;
+  String datagram(Datagram.asString());
 
   // time from meter
   x = datagram.indexOf("0-0:1.0.0(");
@@ -303,9 +290,9 @@ void decodeDatagram() {
     if(y > 0 && y < x + 22) {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oEVLT && tmpVal >= 0) {
-        oEVLT = mEVLT;
-        mEVLT = tmpVal;
+      if(tmpVal >= sm50::datagram::oEVLT && tmpVal >= 0) {
+        sm50::datagram::oEVLT = sm50::datagram::mEVLT;
+        sm50::datagram::mEVLT = tmpVal;
         newData = true;
       }
     }
@@ -318,9 +305,9 @@ void decodeDatagram() {
     if(y > 0 && y < x + 22) {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oEVHT && tmpVal >= 0) {
-        oEVHT = mEVHT;
-        mEVHT = tmpVal;
+      if(tmpVal >= sm50::datagram::oEVHT && tmpVal >= 0) {
+        sm50::datagram::oEVHT = sm50::datagram::mEVHT;
+        sm50::datagram::mEVHT = tmpVal;
         newData = true;
       }
     }
@@ -364,7 +351,7 @@ void decodeDatagram() {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
-        mEAV = tmpVal;
+        sm50::datagram::mEAV = tmpVal;
         newData = true;
       }
     }
@@ -390,7 +377,7 @@ void decodeDatagram() {
     y = datagram.indexOf(")", x);
     if(y > 0 && y < x + 18) {
       t = datagram.substring(x + 12, y);
-      mCT = (long) (t.toInt());
+      sm50::datagram::mCT = (long) (t.toInt());
       newData = true;
     }
   }
@@ -414,9 +401,9 @@ void decodeDatagram() {
     if(y > 0 && y < x + 13) {
       t = datagram.substring(x + 2, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oGVT && tmpVal >= 0) {
-        oGVT = mGVT;
-        mGVT = tmpVal;
+      if(tmpVal >= sm50::datagram::oGVT && tmpVal >= 0) {
+        sm50::datagram::oGVT = sm50::datagram::mGVT;
+        sm50::datagram::mGVT = tmpVal;
         newData = true;
       }
     }
@@ -439,7 +426,7 @@ void decodeDatagram() {
   }
 */
   if( avgCnt < avgInterval ) {
-    avgPwr[avgCnt] = mEAV - mEAP;
+    avgPwr[avgCnt] = sm50::datagram::mEAV - sm50::datagram::mEAP;
     avgCnt++;
   }
 }
@@ -460,7 +447,7 @@ void loop(void) {
   while (Serial.available()) {
     unsigned char c = Serial.read();
     if(c == '/') {
-      datagram = "";
+      Datagram.reset();
       oCrc = 0;
       newData = false;
       state = 1;
@@ -471,7 +458,7 @@ void loop(void) {
         crc = "";
         state = 2;
       }
-      datagram += String((char) c);
+      Datagram.add(c);
       oCrc = crc16_update(oCrc, c);
       break;
     case 2:

@@ -7,7 +7,7 @@ char isotimebuf[25];
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266HTTPClient.h>
-#include <BlynkSimpleEsp8266_SSL.h>
+//#include <BlynkSimpleEsp8266_SSL.h>
 
 #include <esp8266_peri.h>
 
@@ -36,12 +36,6 @@ long mEAP = 0;  // actual production (0,001kW)
 long mCT = 0;   // actual tariff (1/2)
 long mGVT = 0;  // m-bus reading gas (0,001m3)
 long mWVT = 0;  // m-bus reading water (0,001m3)
-long oEVLT = 0; // consumption low tariff (0,001kWh)
-long oEVHT = 0; // consumption high tariff (0,001kWh)
-long oEPLT = 0; // production low tariff (0,001kWh)
-long oEPHT = 0; // production high tariff (0,001kWh)
-long oGVT = 0;  // m-bus reading gas (0,001m3)
-long oWVT = 0;  // m-bus reading water (0,001m3)
 uint16_t oCrc = 0;
 uint16_t iCrc = 0;
 
@@ -68,30 +62,30 @@ struct {
   long mMIN, mAVG, mMAX;
 } avgRec;
 
-BlynkTimer timerAvg;
+//BlynkTimer timerAvg;
 void avgTimer()
 {
   processAverage();
-  Blynk.virtualWrite(V1, avgRec.mAVG);
+  //Blynk.virtualWrite(V1, avgRec.mAVG);
 }
 
-BlynkTimer timerMeters;
+//BlynkTimer timerMeters;
 void metersTimer()
 {
-  Blynk.virtualWrite(V2, mEVLT);
-  Blynk.virtualWrite(V3, mEVHT);
-  Blynk.virtualWrite(V4, mEVLT + mEVHT);
-  Blynk.virtualWrite(V5, mGVT);
+  //Blynk.virtualWrite(V2, mEVLT);
+  //Blynk.virtualWrite(V3, mEVHT);
+  //Blynk.virtualWrite(V4, mEVLT + mEVHT);
+  //Blynk.virtualWrite(V5, mGVT);
 }
 
 String gasTime;
 long mLastGVT = 0;
-BlynkTimer timerGas;
+//BlynkTimer timerGas;
 void gasTimer()
 {
   if ( mLastGVT > 0 )
   {
-    Blynk.virtualWrite(V6, mGVT - mLastGVT);
+    //Blynk.virtualWrite(V6, mGVT - mLastGVT);
   }
   mLastGVT = mGVT;
 }
@@ -106,7 +100,7 @@ void setup(void) {
   
   WiFi.hostname(espHostname);
   WiFi.mode(WIFI_AP_STA);
-  Blynk.begin(auth, ssid, password);
+  WiFi.begin(ssid, password);
   Serial.println("");
 
   while (WiFi.status() != WL_CONNECTED) {
@@ -140,9 +134,9 @@ void setup(void) {
   Serial.print("HTTP server started @ ");
   Serial.println(NowAsIsoTimeString);
 
-  timerAvg.setInterval(1000L * avgInterval, avgTimer);
-  timerGas.setInterval(1000L * gasInterval, gasTimer);
-  timerMeters.setInterval(1000L * metersInterval, metersTimer);
+  //timerAvg.setInterval(1000L * avgInterval, avgTimer);
+  //timerGas.setInterval(1000L * gasInterval, gasTimer);
+  //timerMeters.setInterval(1000L * metersInterval, metersTimer);
 }
 
 // CRC-16-IBM calculation
@@ -170,10 +164,10 @@ uint8_t state = 0;
 
 void loop(void) {
   server.handleClient();
-  Blynk.run();
-  timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
-  timerGas.run(); // Stuur iedere 10m gasverbruik
-  timerMeters.run(); // Stuur ieder uur de meterstanden
+  //Blynk.run();
+  //timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
+  //timerGas.run(); // Stuur iedere 10m gasverbruik
+  //timerMeters.run(); // Stuur ieder uur de meterstanden
 
   while (Serial.available()) {
     unsigned char c = Serial.read();
@@ -246,13 +240,11 @@ String jsonTemplate = "{\r\n"
   "  \"stroom\": {\r\n"
   "    \"tijdstip\": \"%s\",\r\n"
   "    \"tarief\": \"%s\",\r\n"
-  "    \"actueel%02ds\": {\r\n"
-  "      \"gemiddeld\": %ld,\r\n"
-  "      \"minimum\": %ld,\r\n"
-  "      \"maximum\": %ld\r\n"
-  "      \"#metingen\": %d\r\n"
+  "    \"consumptie\": {\r\n"
+  "      \"hoog\": %ld,\r\n"
+  "      \"laag\": %ld\r\n"
   "    },\r\n"
-  "    \"meterstand\": {\r\n"
+  "    \"productie\": {\r\n"
   "      \"hoog\": %ld,\r\n"
   "      \"laag\": %ld\r\n"
   "    }\r\n"
@@ -265,9 +257,8 @@ String jsonTemplate = "{\r\n"
 
 void handleJson() {
   snprintf(message, 500, jsonTemplate.c_str(), tmpTime.c_str(),
-    mCT == 2 ? "hoog" : "laag", avgInterval,
-    avgRec.mAVG, avgRec.mMIN, avgRec.mMAX, avgRec.mCNT,
-    mEVLT, mEVHT, gasTime.c_str(), mGVT);
+    mCT == 2 ? "hoog" : "laag",
+    mEVLT / 1000, mEVHT / 1000, mEPLT / 1000, mEPHT / 1000, gasTime.c_str(), mGVT / 1000);
   server.send(200, "application/json", message);
 }
 
@@ -320,8 +311,7 @@ void decodeDatagram() {
     if(y > 0 && y < x + 22) {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oEVLT && tmpVal >= 0) {
-        oEVLT = mEVLT;
+      if(tmpVal >= 0) {
         mEVLT = tmpVal;
         newData = true;
       }
@@ -335,14 +325,13 @@ void decodeDatagram() {
     if(y > 0 && y < x + 22) {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oEVHT && tmpVal >= 0) {
-        oEVHT = mEVHT;
+      if(tmpVal >= 0) {
         mEVHT = tmpVal;
         newData = true;
       }
     }
   }
-/*
+
   // production low tariff
   x = datagram.indexOf("1-0:2.8.1(");
   if(x >= 0) {
@@ -350,8 +339,7 @@ void decodeDatagram() {
     if(y > 0 && y < x + 22) {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oEPLT && tmpVal >= 0) {
-        oEPLT = mEPLT;
+      if(tmpVal >= 0) {
         mEPLT = tmpVal;
         newData = true;
       }
@@ -365,14 +353,13 @@ void decodeDatagram() {
     if(y > 0 && y < x + 22) {
       t = datagram.substring(x + 10, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oEPHT && tmpVal >= 0) {
-        oEPHT = mEPHT;
+      if(tmpVal >= 0) {
         mEPHT = tmpVal;
         newData = true;
       }
     }
   }
-*/
+
   // actual consumption
   x = datagram.indexOf("1-0:1.7.0(");
   if(x >= 0) {
@@ -431,8 +418,7 @@ void decodeDatagram() {
     if(y > 0 && y < x + 13) {
       t = datagram.substring(x + 2, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oGVT && tmpVal >= 0) {
-        oGVT = mGVT;
+      if(tmpVal >= 0) {
         mGVT = tmpVal;
         newData = true;
       }
@@ -447,8 +433,7 @@ void decodeDatagram() {
     if(y > 0 && y < x + 13) {
       t = datagram.substring(x + 2, y);
       tmpVal = (long) (t.toFloat() * 1000.0);
-      if(tmpVal >= oWVT && tmpVal >= 0) {
-        oWVT = mWVT;
+      if(tmpVal >= 0) {
         mWVT = tmpVal;
         newData = true;
       }

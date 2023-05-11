@@ -161,8 +161,11 @@ char message[500];
 // 1 = waiting for !
 // 2 = waiting for \r
 uint8_t state = 0;
+uint8_t loopCount = 0;
+uint8_t lastLoopCount = 0;
 
 void loop(void) {
+  ++loopCount;
   server.handleClient();
   //Blynk.run();
   //timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
@@ -192,6 +195,8 @@ void loop(void) {
         {
           // Process datagram
           decodeDatagram();
+          lastLoopCount = loopCount;
+          loopCount = 0;
         }
         state = 0;
       }
@@ -204,7 +209,8 @@ void loop(void) {
 void handleDebug() {
   String message = "Server up and running\r\n";
   message += "ResetReason: " + String(ESP.getResetReason()) + "\r\n";
-  message += "ms since on: " + String(millis()) + "\r\n\n";
+  message += "ms since on: " + String(millis()) + "\r\n";
+  message += "lastLoopCount: " + String(lastLoopCount) + "\r\n\n";
   message += datagram;
   message += "\n\r\n\r-------- CRC --------\n\r";
   message += "Message CRC: " + crc;
@@ -241,12 +247,18 @@ String jsonTemplate = "{\r\n"
   "    \"tijdstip\": \"%s\",\r\n"
   "    \"tarief\": \"%s\",\r\n"
   "    \"consumptie\": {\r\n"
-  "      \"hoog\": %ld,\r\n"
-  "      \"laag\": %ld\r\n"
+  "      \"nu\": %ld,\r\n"
+  "      \"meterstand\": {\r\n"
+  "        \"hoog\": %ld,\r\n"
+  "        \"laag\": %ld\r\n"
+  "      }\r\n"
   "    },\r\n"
   "    \"productie\": {\r\n"
-  "      \"hoog\": %ld,\r\n"
-  "      \"laag\": %ld\r\n"
+  "      \"nu\": %ld,\r\n"
+  "      \"meterstand\": {\r\n"
+  "        \"hoog\": %ld,\r\n"
+  "        \"laag\": %ld\r\n"
+  "      }\r\n"
   "    }\r\n"
   "  },\r\n"
   "  \"gas\": {\r\n"
@@ -258,7 +270,7 @@ String jsonTemplate = "{\r\n"
 void handleJson() {
   snprintf(message, 500, jsonTemplate.c_str(), tmpTime.c_str(),
     mCT == 2 ? "hoog" : "laag",
-    mEVLT / 1000, mEVHT / 1000, mEPLT / 1000, mEPHT / 1000, gasTime.c_str(), mGVT / 1000);
+    mEAV, mEVHT, mEVLT, mEAP, mEPHT, mEPLT, gasTime.c_str(), mGVT);
   server.send(200, "application/json", message);
 }
 
@@ -373,7 +385,7 @@ void decodeDatagram() {
       }
     }
   }
-/*
+
   // actual production
   x = datagram.indexOf("1-0:2.7.0(");
   if(x >= 0) {
@@ -387,7 +399,7 @@ void decodeDatagram() {
       }
     }
   }
-*/
+
   // actual tariff
   x = datagram.indexOf("0-0:96.14.0(");
   if(x >= 0) {

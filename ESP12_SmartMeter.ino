@@ -12,7 +12,6 @@ char isotimebuf[25];
 #include <esp8266_peri.h>
 
 // interval in seconds
-#define avgInterval 15
 #define gasInterval 600
 #define metersInterval 3600
 
@@ -53,21 +52,6 @@ ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
 String tmpTime;
-
-long avgPwr[avgInterval];  // calculating average
-short avgCnt = 0;  // items counter
-long mi, av, ma;
-struct {
-  short mCNT;
-  long mMIN, mAVG, mMAX;
-} avgRec;
-
-//BlynkTimer timerAvg;
-void avgTimer()
-{
-  processAverage();
-  //Blynk.virtualWrite(V1, avgRec.mAVG);
-}
 
 //BlynkTimer timerMeters;
 void metersTimer()
@@ -134,7 +118,6 @@ void setup(void) {
   Serial.print("HTTP server started @ ");
   Serial.println(NowAsIsoTimeString);
 
-  //timerAvg.setInterval(1000L * avgInterval, avgTimer);
   //timerGas.setInterval(1000L * gasInterval, gasTimer);
   //timerMeters.setInterval(1000L * metersInterval, metersTimer);
 }
@@ -161,18 +144,18 @@ char message[500];
 // 1 = waiting for !
 // 2 = waiting for \r
 uint8_t state = 0;
-uint8_t loopCount = 0;
-uint8_t lastLoopCount = 0;
 
 void loop(void) {
-  ++loopCount;
+  unsigned long  startofloop = millis();
   server.handleClient();
   //Blynk.run();
   //timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
   //timerGas.run(); // Stuur iedere 10m gasverbruik
   //timerMeters.run(); // Stuur ieder uur de meterstanden
 
-  while (Serial.available()) {
+  // Max looptime is 15 milliseconds.
+  // Stay on the safe side.
+  while (Serial.available() && (millis() - startofloop) < 10) {
     unsigned char c = Serial.read();
     if(c == '/') {
       datagram = "";
@@ -195,8 +178,6 @@ void loop(void) {
         {
           // Process datagram
           decodeDatagram();
-          lastLoopCount = loopCount;
-          loopCount = 0;
         }
         state = 0;
       }
@@ -209,8 +190,7 @@ void loop(void) {
 void handleDebug() {
   String message = "Server up and running\r\n";
   message += "ResetReason: " + String(ESP.getResetReason()) + "\r\n";
-  message += "ms since on: " + String(millis()) + "\r\n";
-  message += "lastLoopCount: " + String(lastLoopCount) + "\r\n\n";
+  message += "ms since on: " + String(millis()) + "\r\n\n";
   message += datagram;
   message += "\n\r\n\r-------- CRC --------\n\r";
   message += "Message CRC: " + crc;
@@ -452,34 +432,4 @@ void decodeDatagram() {
     }
   }
 */
-  if( avgCnt < avgInterval ) {
-    avgPwr[avgCnt] = mEAV - mEAP;
-    avgCnt++;
-  }
-}
-
-void processAverage() {
-  av = 0;
-  mi = 2147483646L;
-  ma = -2147483646L;
-  for(int i=0; i < avgCnt; i++) {
-    av = av + avgPwr[i];
-    if(avgPwr[i] > ma) {
-      ma = avgPwr[i];
-    }
-    if(avgPwr[i] < mi) {
-      mi = avgPwr[i];
-    }
-    avgPwr[i] = 0;
-  }
-  if(avgCnt > 0) {
-    av = av / avgCnt;
-  } else {
-    av = 0;
-  }
-  avgRec.mCNT = avgCnt;
-  avgCnt = 0;
-  avgRec.mMIN = mi;
-  avgRec.mAVG = av;
-  avgRec.mMAX = ma;
 }

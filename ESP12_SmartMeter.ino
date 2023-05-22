@@ -7,7 +7,7 @@ char isotimebuf[25];
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266HTTPClient.h>
-//#include <BlynkSimpleEsp8266_SSL.h>
+#include <BlynkSimpleEsp8266.h>
 
 #include <esp8266_peri.h>
 
@@ -20,7 +20,6 @@ char isotimebuf[25];
 char espHostname[] = HOSTNAME;
 char ssid[] = WIFI_SSID;
 char password[] = WIFI_PASSWD;
-char auth[] = BLYNK_AUTH;
 
 // Configuration for NTP
 const char* ntp_primary = "ntp.caiway.nl";
@@ -82,15 +81,11 @@ void setup(void) {
 
   twi_setClock(400000);
   
-  WiFi.hostname(espHostname);
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(ssid, password);
   Serial.println("");
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
+  WiFi.hostname(espHostname);
+  WiFi.mode(WIFI_AP_STA);
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, password);
 
   Serial.println("");
   Serial.print("Connected to ");
@@ -148,14 +143,14 @@ uint8_t state = 0;
 void loop(void) {
   unsigned long  startofloop = millis();
   server.handleClient();
-  //Blynk.run();
+  Blynk.run();
   //timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
   //timerGas.run(); // Stuur iedere 10m gasverbruik
   //timerMeters.run(); // Stuur ieder uur de meterstanden
 
   // Max looptime is 15 milliseconds.
   // Stay on the safe side.
-  while (Serial.available() && (millis() - startofloop) < 10) {
+  while ( ((millis() - startofloop) < 10) && Serial.available() ) {
     unsigned char c = Serial.read();
     if(c == '/') {
       datagram = "";
@@ -178,6 +173,7 @@ void loop(void) {
         {
           // Process datagram
           decodeDatagram();
+          Blynk.virtualWrite(V0, mEAP - mEAV);
         }
         state = 0;
       }

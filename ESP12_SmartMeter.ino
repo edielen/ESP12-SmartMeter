@@ -8,12 +8,7 @@ char isotimebuf[25];
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266HTTPClient.h>
 #include <BlynkSimpleEsp8266.h>
-
 #include <esp8266_peri.h>
-
-// interval in seconds
-#define gasInterval 600
-#define metersInterval 3600
 
 #include "secrets.h"
 
@@ -51,27 +46,7 @@ ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
 String tmpTime;
-
-//BlynkTimer timerMeters;
-void metersTimer()
-{
-  //Blynk.virtualWrite(V2, mEVLT);
-  //Blynk.virtualWrite(V3, mEVHT);
-  //Blynk.virtualWrite(V4, mEVLT + mEVHT);
-  //Blynk.virtualWrite(V5, mGVT);
-}
-
 String gasTime;
-long mLastGVT = 0;
-//BlynkTimer timerGas;
-void gasTimer()
-{
-  if ( mLastGVT > 0 )
-  {
-    //Blynk.virtualWrite(V6, mGVT - mLastGVT);
-  }
-  mLastGVT = mGVT;
-}
 
 void setup(void) {
   Serial.begin(115200);
@@ -112,9 +87,6 @@ void setup(void) {
   Serial.println("");
   Serial.print("HTTP server started @ ");
   Serial.println(NowAsIsoTimeString);
-
-  //timerGas.setInterval(1000L * gasInterval, gasTimer);
-  //timerMeters.setInterval(1000L * metersInterval, metersTimer);
 }
 
 // CRC-16-IBM calculation
@@ -144,9 +116,6 @@ void loop(void) {
   unsigned long  startofloop = millis();
   server.handleClient();
   Blynk.run();
-  //timerAvg.run(); // Stuur iedere 15s gemiddeld verbruik
-  //timerGas.run(); // Stuur iedere 10m gasverbruik
-  //timerMeters.run(); // Stuur ieder uur de meterstanden
 
   // Max looptime is 15 milliseconds.
   // Stay on the safe side.

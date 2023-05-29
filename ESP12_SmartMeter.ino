@@ -236,6 +236,7 @@ void handleDebug() {
   message += "Message CRC: " + crc;
   message += "\r\nBerekende CRC: " + String(oCrc, HEX);
   message += "\n\r-------- Debug Data ----------\n\r";
+  message += "mqttConnected: " + String(mqttConnected) + "\n\r";
   message += debugme;
   message += "\n\r-------- Network Info --------\n\r";
   message += "Time: ";
@@ -333,9 +334,9 @@ void decodeDatagram() {
       t = datagram.substring(x + 10, y);
       tmpTime = "20" + t.substring(0, 2) + "-" + t.substring(2, 4) + "-" + t.substring(4, 6) + "T" + t.substring(6, 8) + ":" + t.substring(8, 10) + ":" + t.substring(10, 12);
       if(t.indexOf("S") > 0) {
-        tmpTime += "+2:00";
+        tmpTime += "+02:00";
       } else {
-        tmpTime += "+1:00";
+        tmpTime += "+01:00";
       }
     }
   }
@@ -436,9 +437,9 @@ void decodeDatagram() {
       t = datagram.substring(x + 11, y);
       gasTime = "20" + t.substring(0, 2) + "-" + t.substring(2, 4) + "-" + t.substring(4, 6) + "T" + t.substring(6, 8) + ":" + t.substring(8, 10) + ":" + t.substring(10, 12);
       if(t.indexOf("S") > 0) {
-        gasTime += "+2:00";
+        gasTime += "+02:00";
       } else {
-        gasTime += "+1:00";
+        gasTime += "+01:00";
       }
     }
 

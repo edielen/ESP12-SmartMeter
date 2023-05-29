@@ -13,6 +13,9 @@ char isotimebuf[25];
 
 #include "secrets.h"
 
+#define BLYNK_NO_BUILTIN
+#define BLYNK_NO_FLOAT
+
 char espHostname[] = HOSTNAME;
 char ssid[] = WIFI_SSID;
 char password[] = WIFI_PASSWD;
@@ -36,8 +39,6 @@ long mWVT = 0;  // m-bus reading water (0,001m3)
 uint16_t oCrc = 0;
 uint16_t iCrc = 0;
 
-boolean newData = false;
-
 int wRSSI = 0;  // The RSSI indicator, scaled from 0 (worse) to 4 (best)
 
 String datagram = "";
@@ -49,9 +50,30 @@ String chipid = "";
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 AsyncMqttClient mqttClient;
+BlynkTimer connectTimer;
 
 String tmpTime;
 String gasTime;
+
+static bool mqttConnected = false;
+void onMqttConnect(bool sessionPresent)
+{
+  mqttConnected = true;
+}
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
+{
+  mqttConnected = false;
+}
+
+void connectTimerEvent()
+{
+  if ( !mqttConnected && WiFi.isConnected() )
+  {
+    mqttClient.connect();
+    mqttConnected = mqttClient.connected();
+  }
+}
 
 void setup(void) {
   Serial.begin(115200);
@@ -93,9 +115,12 @@ void setup(void) {
   Serial.print("HTTP server started @ ");
   Serial.println(NowAsIsoTimeString);
 
+
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCredentials(MQTT_USER, MQTT_PASSWD);
-  mqttClient.connect();
+  mqttClient.onConnect(onMqttConnect);
+  mqttClient.onDisconnect(onMqttDisconnect);
+  connectTimer.setInterval(30000L, connectTimerEvent);
 }
 
 // CRC-16-IBM calculation
@@ -119,7 +144,8 @@ char message[500];
 // 0 = reading P1
 // 1 = decode datagram
 // 2 = publish to blynk
-// 3 = publish to mqtt
+// 3 = compose json
+// 4 = publish to mqtt
 uint8_t phase = 0;
 
 // Returns phase
@@ -138,7 +164,6 @@ uint8_t readSerial(unsigned long startOfLoop)
     if(c == '/') {
       datagram = "";
       oCrc = 0;
-      newData = false;
       state = 1;
     }
     switch ( state ) {
@@ -167,6 +192,7 @@ uint8_t readSerial(unsigned long startOfLoop)
 
 void loop(void) {
   unsigned long  startofloop = millis();
+  connectTimer.run();
   server.handleClient();
   Blynk.run();
 
@@ -187,10 +213,14 @@ void loop(void) {
           phase = 3;
           break;
       case 3:
-          snprintf(buf, 25, "%ld", mEAV);
-          mqttClient.publish(MQTT_TOPIC "/consumption", 0, true, buf);
-          snprintf(buf, 25, "%ld", mEAP);
-          mqttClient.publish(MQTT_TOPIC "/production", 0, true, buf);
+          composeJson();
+          phase = 4;
+          break;
+      case 4:
+          if ( mqttConnected )
+          {
+            mqttClient.publish(MQTT_TOPIC, 0, true, message);
+          }
           phase = 0;
           break;
     }
@@ -257,10 +287,14 @@ String jsonTemplate = "{\r\n"
   "  }\r\n"
   "}\r\n";
 
-void handleJson() {
+void composeJson() {
   snprintf(message, 500, jsonTemplate.c_str(), tmpTime.c_str(),
     mCT == 2 ? "hoog" : "laag",
     mEAV, mEVHT, mEVLT, mEAP, mEPHT, mEPLT, gasTime.c_str(), mGVT);
+}
+
+void handleJson() {
+  composeJson();
   server.send(200, "application/json", message);
 }
 
@@ -315,7 +349,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mEVLT = tmpVal;
-        newData = true;
       }
     }
   }
@@ -329,7 +362,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mEVHT = tmpVal;
-        newData = true;
       }
     }
   }
@@ -343,7 +375,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mEPLT = tmpVal;
-        newData = true;
       }
     }
   }
@@ -357,7 +388,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mEPHT = tmpVal;
-        newData = true;
       }
     }
   }
@@ -371,7 +401,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mEAV = tmpVal;
-        newData = true;
       }
     }
   }
@@ -385,7 +414,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mEAP = tmpVal;
-        newData = true;
       }
     }
   }
@@ -397,7 +425,6 @@ void decodeDatagram() {
     if(y > 0 && y < x + 18) {
       t = datagram.substring(x + 12, y);
       mCT = (long) (t.toInt());
-      newData = true;
     }
   }
   
@@ -422,7 +449,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mGVT = tmpVal;
-        newData = true;
       }
     }
   }
@@ -437,7 +463,6 @@ void decodeDatagram() {
       tmpVal = (long) (t.toFloat() * 1000.0);
       if(tmpVal >= 0) {
         mWVT = tmpVal;
-        newData = true;
       }
     }
   }

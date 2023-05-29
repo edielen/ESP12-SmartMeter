@@ -8,6 +8,7 @@ char isotimebuf[25];
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266HTTPClient.h>
 #include <BlynkSimpleEsp8266.h>
+#include <AsyncMqtt_Generic.h>
 #include <esp8266_peri.h>
 
 #include "secrets.h"
@@ -19,6 +20,9 @@ char password[] = WIFI_PASSWD;
 // Configuration for NTP
 const char* ntp_primary = "ntp.caiway.nl";
 const char* ntp_secondary = "pool.ntp.org";
+
+// Topic on MQTT broker
+#define MQTT_TOPIC "thuis/meterkast/actuals"
 
 long mEVLT = 0; // consumption low tariff (0,001kWh)
 long mEVHT = 0; // consumption high tariff (0,001kWh)
@@ -44,6 +48,7 @@ String chipid = "";
 
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
+AsyncMqttClient mqttClient;
 
 String tmpTime;
 String gasTime;
@@ -87,6 +92,10 @@ void setup(void) {
   Serial.println("");
   Serial.print("HTTP server started @ ");
   Serial.println(NowAsIsoTimeString);
+
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCredentials(MQTT_USER, MQTT_PASSWD);
+  mqttClient.connect();
 }
 
 // CRC-16-IBM calculation
@@ -107,19 +116,24 @@ uint16_t crc16_update(uint16_t crc16, unsigned char c)
 
 char message[500];
 
-// 0 = waiting for /
-// 1 = waiting for !
-// 2 = waiting for \r
-uint8_t state = 0;
+// 0 = reading P1
+// 1 = decode datagram
+// 2 = publish to blynk
+// 3 = publish to mqtt
+uint8_t phase = 0;
 
-void loop(void) {
-  unsigned long  startofloop = millis();
-  server.handleClient();
-  Blynk.run();
+// Returns phase
+uint8_t readSerial(unsigned long startOfLoop)
+{
+  // 0 = waiting for /
+  // 1 = waiting for !
+  // 2 = waiting for \r
+  static uint8_t state = 0;
+  uint8_t retphase = 0;
 
   // Max looptime is 15 milliseconds.
   // Stay on the safe side.
-  while ( ((millis() - startofloop) < 10) && Serial.available() ) {
+  while ( ((millis() - startOfLoop) <= 14) && Serial.available() ) {
     unsigned char c = Serial.read();
     if(c == '/') {
       datagram = "";
@@ -140,14 +154,45 @@ void loop(void) {
       if(c == '\r') {
         if ( checkCRC() )
         {
-          // Process datagram
-          decodeDatagram();
-          Blynk.virtualWrite(V0, mEAP - mEAV);
+          retphase = 1;
         }
         state = 0;
       }
       else
         crc += String((char) c);
+    }
+  }
+  return retphase;
+}
+
+void loop(void) {
+  unsigned long  startofloop = millis();
+  server.handleClient();
+  Blynk.run();
+
+  if ((millis() - startofloop) <= 14)
+  {
+    static char buf[25];
+    switch (phase) {
+      case 0:
+          phase = readSerial(startofloop);
+          break;
+      case 1:
+          // Process datagram
+          decodeDatagram();
+          phase = 2;
+          break;
+      case 2:
+          Blynk.virtualWrite(V0, mEAP - mEAV);
+          phase = 3;
+          break;
+      case 3:
+          snprintf(buf, 25, "%ld", mEAV);
+          mqttClient.publish(MQTT_TOPIC "/consumption", 0, true, buf);
+          snprintf(buf, 25, "%ld", mEAP);
+          mqttClient.publish(MQTT_TOPIC "/production", 0, true, buf);
+          phase = 0;
+          break;
     }
   }
 }

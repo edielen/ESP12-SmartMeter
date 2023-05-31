@@ -11,9 +11,4 @@ The following improvements are made:
 
 ---
 
-For Blynk.io app, see [link](https://blynk.io/en/getting-started), create an account and a device token, embed the token and wifi information in secrets.h and use the following 'virtual pins' in the Blynk.io app:
- * V1: 15 seconds average of power consumption
- * V2: consumption low tariff
- * V3: consumption high tariff
- * V4: total consumption
- * V5: gas consumption
+For Blynk.io app, see [link](https://blynk.io/en/getting-started), create an account and a device token, embed the token and wifi information in secrets.h and use the following datastream in the Blynk.io app: V0 = actual consumption -/- production in Watts/s

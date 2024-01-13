@@ -20,6 +20,9 @@ char espHostname[] = HOSTNAME;
 char ssid[] = WIFI_SSID;
 char password[] = WIFI_PASSWD;
 
+// Holds JSON message
+char message[500];
+
 // Configuration for NTP
 const char* ntp_primary = "ntp.caiway.nl";
 const char* ntp_secondary = "pool.ntp.org";
@@ -33,6 +36,7 @@ long mEPLT = 0; // production low tariff (0,001kWh)
 long mEPHT = 0; // production high tariff (0,001kWh)
 long mEAV = 0;  // actual consumption (0,001kW)
 long mEAP = 0;  // actual production (0,001kW)
+long mEAL = 0;  // actual voltage (0,1V)
 long mCT = 0;   // actual tariff (1/2)
 long mGVT = 0;  // m-bus reading gas (0,001m3)
 long mWVT = 0;  // m-bus reading water (0,001m3)
@@ -138,8 +142,6 @@ uint16_t crc16_update(uint16_t crc16, unsigned char c)
     crc16 = crc16 & 1 ? (crc16 >> 1) ^ POLY : crc16 >> 1;
     return crc16;
 }
-
-char message[500];
 
 // 0 = reading P1
 // 1 = decode datagram
@@ -267,6 +269,7 @@ String jsonTemplate = "{\r\n"
   "  \"stroom\": {\r\n"
   "    \"tijdstip\": \"%s\",\r\n"
   "    \"tarief\": \"%s\",\r\n"
+  "    \"voltage\": %ld,\r\n"
   "    \"consumptie\": {\r\n"
   "      \"nu\": %ld,\r\n"
   "      \"meterstand\": {\r\n"
@@ -290,7 +293,7 @@ String jsonTemplate = "{\r\n"
 
 void composeJson() {
   snprintf(message, 500, jsonTemplate.c_str(), tmpTime.c_str(),
-    mCT == 2 ? "hoog" : "laag",
+    mCT == 2 ? "hoog" : "laag", mEAL,
     mEAV, mEVHT, mEVLT, mEAP, mEPHT, mEPLT, gasTime.c_str(), mGVT);
 }
 
@@ -428,7 +431,20 @@ void decodeDatagram() {
       mCT = (long) (t.toInt());
     }
   }
-  
+ 
+  // actual voltage
+  x = datagram.indexOf("1-0:32.7.0(");
+  if(x >= 0) {
+    y = datagram.indexOf("*V)", x);
+    if(y > 0 && y < x + 18) {
+      t = datagram.substring(x + 11, y);
+      tmpVal = (long) (t.toFloat() * 10.0);
+      if(tmpVal >= 0) {
+        mEAL = tmpVal;
+      }
+    }
+  }
+
   // actual gas consumption including timestamp
   x = datagram.indexOf("0-1:24.2.1(");
   if(x >= 0) {
